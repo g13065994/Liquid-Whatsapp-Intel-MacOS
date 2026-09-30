@@ -71,9 +71,12 @@ class WhatsAppCore extends EventEmitter {
     this.contacts = new Map()
     this.presence = new Map()
     this.groupNames = new Map()
+    // Active message windows are intentionally capped for older Intel Macs.
+    // Persistent history remains in LocalMessageStore on disk.
     this.messageStore = new Map()
+    this.messageWindowLimit = 100
     this.rawMessages = new Map()
-    this.rawMessageLimit = 5000
+    this.rawMessageWindowLimit = 100
     this.connectTimer = null
     this.tickBusy = false
     this.settings = this._readJson(this.settingsFile, {
@@ -406,7 +409,9 @@ class WhatsAppCore extends EventEmitter {
       if (existing >= 0) arr[existing] = dto
       else arr.push(dto)
       arr.sort((a, b) => a.timestamp - b.timestamp)
-      if (arr.length > 500) arr.splice(0, arr.length - 500)
+      if (arr.length > this.messageWindowLimit) {
+        arr.splice(0, arr.length - this.messageWindowLimit)
+      }
       this.messageStore.set(dto.jid, arr)
     }
 
@@ -1120,22 +1125,28 @@ const quotedRaw = quoted?.id && quoted?.jid ? this._getRawMessage(quoted.jid, qu
       c.documentMessage?.caption || ''
   }
 
-  _messageCacheKey(jid, id) {
-    return String(jid || '') + ':' + String(id || '')
-  }
-
   _rememberRawMessage(jid, id, raw) {
     if (!jid || !id || !raw) return
-    this.rawMessages.set(this._messageCacheKey(jid, id), raw)
-    while (this.rawMessages.size > this.rawMessageLimit) {
-      const first = this.rawMessages.keys().next().value
-      if (first === undefined) break
-      this.rawMessages.delete(first)
+
+    let bucket = this.rawMessages.get(jid)
+    if (!bucket) {
+      bucket = new Map()
+      this.rawMessages.set(jid, bucket)
+    }
+
+    // Map insertion order acts as a lightweight per-thread LRU queue.
+    if (bucket.has(id)) bucket.delete(id)
+    bucket.set(id, raw)
+
+    while (bucket.size > this.rawMessageWindowLimit) {
+      const oldest = bucket.keys().next().value
+      if (oldest === undefined) break
+      bucket.delete(oldest)
     }
   }
 
   _getRawMessage(jid, id) {
-    return this.rawMessages.get(this._messageCacheKey(jid, id)) || null
+    return this.rawMessages.get(jid)?.get(id) || null
   }
 
   _msgDto(m) {
