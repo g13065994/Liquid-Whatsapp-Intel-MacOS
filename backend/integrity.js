@@ -187,6 +187,15 @@ function sha256(buffer) {
   return crypto.createHash('sha256').update(buffer).digest('hex')
 }
 
+function validateHeaderAnchor(headerBuffer, expectedHash) {
+  const actualHash = sha256(headerBuffer)
+  return {
+    actualHash,
+    expectedHash: String(expectedHash || '').toLowerCase() || null,
+    matches: Boolean(expectedHash) && equalHex(expectedHash, actualHash)
+  }
+}
+
 function validateAsarPayload(asarPath, bundlePath) {
   const base = {
     status: 'unknown',
@@ -218,7 +227,8 @@ function validateAsarPayload(asarPath, bundlePath) {
     return base
   }
 
-  base.headerHash = sha256(parsed.headerBuffer)
+  const headerAnchor = validateHeaderAnchor(parsed.headerBuffer, null)
+  base.headerHash = headerAnchor.actualHash
 
   const embedded = readEmbeddedAsarIntegrity(bundlePath)
   base.embeddedAnchorPresent = embedded.present
@@ -237,7 +247,8 @@ function validateAsarPayload(asarPath, bundlePath) {
     return base
   }
 
-  base.embeddedHeaderHashMatches = equalHex(embedded.hash, base.headerHash)
+  const headerAnchor = validateHeaderAnchor(parsed.headerBuffer, embedded.hash)
+  base.embeddedHeaderHashMatches = headerAnchor.matches
 
   if (!base.embeddedHeaderHashMatches) {
     base.status = 'breached'
@@ -338,5 +349,7 @@ module.exports = {
   parseAsarHeader,
   readEmbeddedAsarIntegrity,
   validateAsarPayload,
-  equalHex
+  validateHeaderAnchor,
+  equalHex,
+  sha256
 }
