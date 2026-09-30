@@ -1,8 +1,14 @@
 const fs = require('fs')
 const path = require('path')
 
-function patch(file, replacements) {
-  if (!fs.existsSync(file)) throw new Error('VoIP file not found: ' + file)
+function patch(file, replacements, { optional = false } = {}) {
+  if (!fs.existsSync(file)) {
+    if (optional) {
+      console.warn('[Liquid WhatsApp] Optional VoIP file not found, skipping: ' + file)
+      return false
+    }
+    throw new Error('VoIP file not found: ' + file)
+  }
   let text = fs.readFileSync(file, 'utf8')
   let changed = false
   for (const [from, to] of replacements) {
@@ -38,7 +44,7 @@ patch(video, [
   ['this.#proc = spawn(FFMPEG_BIN, args, {', 'this.#proc = spawn(FFMPEG_BIN, args, {'],
   ['if (this.source.startsWith("lavfi:")) {\\n            args.push("-f", "lavfi", "-re", "-i", this.source.slice(6));\\n        }',
    'if (this.source.startsWith("lavfi:")) {\\n            args.push("-f", "lavfi", "-re", "-i", this.source.slice(6));\\n        }\\n        else if (this.source.startsWith("camera:")) {\\n            const device = this.source.slice("camera:".length) || "0";\\n            if (process.platform === "darwin") {\\n                args.push("-f", "avfoundation", "-framerate", String(this.fps), "-video_size", this.width + "x" + this.height, "-i", device + ":none");\\n            } else {\\n                args.push("-f", "v4l2", "-framerate", String(this.fps), "-video_size", this.width + "x" + this.height, "-i", device);\\n            }\\n        }']
-])
+], { optional: true })
 
 console.log('[Liquid WhatsApp] VoIP capture patch ready')
 
