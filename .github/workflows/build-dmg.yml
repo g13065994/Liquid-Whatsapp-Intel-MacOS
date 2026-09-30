@@ -6,6 +6,7 @@ on:
     branches:
       - security-hardening-v2.3.1
       - fix/runtime-integrity
+      - production-integrity-cache
     tags:
       - "v*.*.*"
 
