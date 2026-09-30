@@ -38,7 +38,7 @@ function findAppBundlePath(...candidates) {
       if (seen.has(current)) break
       seen.add(current)
 
-      if (/\\.app$/i.test(path.basename(current))) {
+      if (/\.app$/i.test(path.basename(current))) {
         return current
       }
 
@@ -62,13 +62,13 @@ function getRuntimePathContext(bundlePath, appPath) {
   const text = paths.join('\n')
 
   return {
-    appTranslocated: /\\/AppTranslocation\\//i.test(text) || /\\/AppTranslocation\\//i.test(text.replace(/\\\\/g, '/')),
-    underPrivateVarFolders: /\\/private\\/var\\/folders\\//i.test(text) || /\\/private\\/var\\/folders\\//i.test(text.replace(/\\\\/g, '/'))
+    appTranslocated: text.includes('/AppTranslocation/'),
+    underPrivateVarFolders: text.includes('/private/var/folders/')
   }
 }
 
 function isUnsignedSignature(details, message) {
-  const text = `${details}\\n${message}`
+  const text = details + '\n' + message
 
   return /code object is not signed at all|bundle is unsigned|no code signature found/i.test(text)
 }
@@ -101,9 +101,9 @@ function getCodeSignatureInfo(bundlePath) {
       /Signature=adhoc/m.test(details) ||
       /^Authority=/m.test(details)
     ),
-    adHoc: /(?:^|\\n)Signature=adhoc(?:\\n|$)/m.test(details),
+    adHoc: /Signature=adhoc/m.test(details),
     developerIdSigned: /^Authority=Developer ID Application:/m.test(details),
-    hardenedRuntime: /flags=.*\\bruntime\\b/.test(details),
+    hardenedRuntime: /flags=.*\bruntime\b/.test(details),
     error: result.error ? String(result.error.message || result.error) : null
   }
 }
@@ -252,7 +252,7 @@ function inspectIntegrity(app) {
   if (!gatekeeper.ok) missing.push('Gatekeeper acceptance')
 
   base.status = 'signed-unverified'
-  base.reason = `Signature is valid, but this build is not fully verified: ${missing.join(', ')}.`
+  base.reason = 'Signature is valid, but this build is not fully verified: ' + missing.join(', ') + '.'
 
   return base
 }
