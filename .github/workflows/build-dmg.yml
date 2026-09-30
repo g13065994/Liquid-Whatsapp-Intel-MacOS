@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - security-hardening-v2.3.1
+      - fix/runtime-integrity
     tags:
       - "v*.*.*"
 

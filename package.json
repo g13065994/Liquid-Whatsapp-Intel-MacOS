@@ -62,7 +62,8 @@
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Liquid WhatsApp uses the microphone to record voice notes.",
         "NSCameraUsageDescription": "Liquid WhatsApp uses the camera for supported calling features."
-      }
+      },
+      "strictVerify": true
     },
     "asarUnpack": [
       "node_modules/ffmpeg-static/**",
@@ -77,11 +78,25 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "Romeoisl",
-        "repo": "Whatsapp-MacOS-Intel",
+        "owner": "g13065994",
+        "repo": "Liquid-Whatsapp-Intel-MacOS",
         "releaseType": "release"
       }
-    ]
+    ],
+    "asar": {
+      "smartUnpack": true,
+      "disableIntegrity": false,
+      "disableSanityCheck": false
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true,
+      "loadBrowserProcessSpecificV8Snapshot": false,
+      "grantFileProtocolExtraPrivileges": false
+    }
   },
   "overrides": {
     "@whiskeysockets/baileys": {
