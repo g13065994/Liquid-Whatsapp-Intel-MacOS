@@ -227,8 +227,7 @@ function validateAsarPayload(asarPath, bundlePath) {
     return base
   }
 
-  const headerAnchor = validateHeaderAnchor(parsed.headerBuffer, null)
-  base.headerHash = headerAnchor.actualHash
+  base.headerHash = sha256(parsed.headerBuffer)
 
   const embedded = readEmbeddedAsarIntegrity(bundlePath)
   base.embeddedAnchorPresent = embedded.present
