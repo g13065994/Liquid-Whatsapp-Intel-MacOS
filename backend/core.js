@@ -423,7 +423,9 @@ class WhatsAppCore extends EventEmitter {
       byJid.get(dto.jid).push(dto)
     }
     for (const [jid, messagesForChat] of byJid) {
-      this._persistLocalMessages(jid)
+      // Persist the incoming batch independently of the bounded RAM window.
+      // Older entries may already have been evicted from messageStore.
+      this._persistLocalMessages(jid, messagesForChat)
       this.emit('messages', { jid, messages: messagesForChat })
     }
 
@@ -445,8 +447,22 @@ class WhatsAppCore extends EventEmitter {
     }
     for (const [jid, statusUpdates] of byJid) {
       const arr = this.messageStore.get(jid) || []
-      for (const u of statusUpdates) { const m = arr.find(x => x.id === u.id); if (m) m.status = u.status }
-      this._persistLocalMessages(jid)
+      const changed = []
+
+      for (const u of statusUpdates) {
+        let message = arr.find(x => x.id === u.id)
+
+        if (!message) {
+          const persisted = this.localDb.index.get(jid)?.get(u.id)
+          if (persisted) message = { ...persisted }
+        }
+
+        if (!message) continue
+        message.status = u.status
+        changed.push(message)
+      }
+
+      this._persistLocalMessages(jid, changed)
       this.emit('messages', { jid, statusUpdates })
     }
   }
@@ -735,9 +751,15 @@ const quotedRaw = quoted?.id && quoted?.jid ? this._getRawMessage(quoted.jid, qu
     this._requireOpen(); await this.sock.groupLeave(jid); return true
   }
 
-  _persistLocalMessages(jid) {
-    const arr = (this.messageStore.get(jid) || []).map(m => ({ ...m, raw: undefined }))
-    this.localMessages[jid] = arr
+  _persistLocalMessages(jid, messages = this.messageStore.get(jid) || []) {
+    const arr = (messages || [])
+      .filter((m) => m?.id)
+      .map(m => ({ ...m, raw: undefined }))
+
+    if (!arr.length) return
+
+    this.localMessages[jid] = (this.messageStore.get(jid) || [])
+      .map(m => ({ ...m, raw: undefined }))
     this.localDb.upsertMany(jid, arr)
 
     // The legacy JSON file is only for migration/backwards compatibility.
