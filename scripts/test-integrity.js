@@ -1,58 +1,52 @@
 const assert = require('assert')
-const path = require('path')
+const integrity = require('../backend/integrity')
 
-const {
-  findAppBundlePath,
-  isUnsignedSignature,
-  isTrustOnlyVerificationFailure,
-  isDefiniteMutationFailure,
-  shouldBlock
-} = require('../backend/integrity')
-
-const translocated = '/private/var/folders/ab/cd/T/AppTranslocation/12345678-AAAA-BBBB-CCCC-1234567890AB/d/Liquid WhatsApp.app/Contents/Resources/app.asar'
-const expectedBundle = '/private/var/folders/ab/cd/T/AppTranslocation/12345678-AAAA-BBBB-CCCC-1234567890AB/d/Liquid WhatsApp.app'
-
-assert.strictEqual(findAppBundlePath(translocated), expectedBundle)
 assert.strictEqual(
-  findAppBundlePath('/Applications/Liquid WhatsApp.app/Contents/MacOS/Liquid WhatsApp'),
-  '/Applications/Liquid WhatsApp.app'
+  integrity.findAppBundlePath('/private/var/folders/a/b/T/AppTranslocation/UUID/d/Liquid WhatsApp.app/Contents/Resources/app.asar'),
+  '/private/var/folders/a/b/T/AppTranslocation/UUID/d/Liquid WhatsApp.app'
 )
 
 assert.strictEqual(
-  isUnsignedSignature('', 'code object is not signed at all'),
+  integrity.detectRuntimePath('/private/var/folders/a/b/T/AppTranslocation/UUID/d/Liquid WhatsApp.app/Contents/Resources/app.asar').appTranslocation,
   true
 )
 
 assert.strictEqual(
-  isTrustOnlyVerificationFailure('CSSMERR_TP_NOT_TRUSTED'),
+  integrity.detectRuntimePath('/private/var/folders/a/b/T/Liquid WhatsApp.app/Contents/Resources/app.asar').privateVarFolders,
   true
 )
 
-assert.strictEqual(
-  isDefiniteMutationFailure('a sealed resource is missing or invalid'),
-  true
-)
+assert.strictEqual(integrity.equalHex('a'.repeat(64), 'a'.repeat(64)), true)
+assert.strictEqual(integrity.equalHex('a'.repeat(64), 'b'.repeat(64)), false)
 
 assert.strictEqual(
-  shouldBlock({
+  integrity.shouldBlock({
     packaged: true,
     platform: 'darwin',
-    signed: true,
-    validSignature: false,
-    status: 'modified'
+    payload: { status: 'breached' }
   }),
   true
 )
 
+for (const status of ['valid', 'unanchored', 'missing', 'unknown', 'development']) {
+  assert.strictEqual(
+    integrity.shouldBlock({
+      packaged: true,
+      platform: 'darwin',
+      payload: { status }
+    }),
+    false
+  )
+}
+
 assert.strictEqual(
-  shouldBlock({
+  integrity.shouldBlock({
     packaged: true,
     platform: 'darwin',
-    signed: true,
-    validSignature: false,
-    status: 'signed-unverified'
+    payload: { status: 'valid' },
+    signature: { status: 'ad-hoc-translocated' }
   }),
   false
 )
 
-console.log('Integrity classification checks passed.')
+console.log('Integrity regression checks passed.')
