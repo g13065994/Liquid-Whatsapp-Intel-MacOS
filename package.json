@@ -8,7 +8,7 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --mac dmg zip --x64 --publish never",
-    "check": "node --check main.js && node --check preload.js && node --check backend/core.js && node --check backend/integrity.js && node --check backend/local-store.js && node --check renderer/js/store.js && node --check renderer/js/api.js && node --check renderer/js/ui.js && node --check renderer/js/app.js && node --check scripts/patch-voip-capture.js",
+    "check": "node --check main.js && node --check preload.js && node --check backend/core.js && node --check backend/integrity.js && node --check backend/local-store.js && node --check renderer/js/store.js && node --check renderer/js/api.js && node --check renderer/js/ui.js && node --check renderer/js/app.js && node --check scripts/patch-voip-capture.js && node --check scripts/after-pack-fuses.js",
     "build:catalina": "npm run check && electron-builder --mac dmg zip --x64 --publish never",
     "build:app": "npm run check && electron-builder --mac dir --x64",
     "check:renderer": "node --check renderer/js/store.js && node --check renderer/js/api.js && node --check renderer/js/ui.js && node --check renderer/js/app.js",
