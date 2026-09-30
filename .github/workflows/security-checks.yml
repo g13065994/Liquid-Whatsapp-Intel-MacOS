@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main, security-hardening-v2.3.1]
+    branches: [main, security-hardening-v2.3.1, production-integrity-cache]
 
 jobs:
   syntax:
