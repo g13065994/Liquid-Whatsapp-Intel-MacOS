@@ -24,7 +24,8 @@
   },
   "devDependencies": {
     "electron": "32.3.3",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "@electron/fuses": "^1.8.0"
   },
   "build": {
     "appId": "com.liquid.whatsapp",
@@ -84,19 +85,10 @@
       }
     ],
     "asar": {
-      "smartUnpack": true,
-      "disableIntegrity": false,
-      "disableSanityCheck": false
+      "smartUnpack": true
     },
-    "electronFuses": {
-      "runAsNode": false,
-      "enableNodeOptionsEnvironmentVariable": false,
-      "enableNodeCliInspectArguments": false,
-      "enableEmbeddedAsarIntegrityValidation": true,
-      "onlyLoadAppFromAsar": true,
-      "loadBrowserProcessSpecificV8Snapshot": false,
-      "grantFileProtocolExtraPrivileges": false
-    }
+    "disableSanityCheckAsar": false,
+    "afterPack": "./scripts/after-pack-fuses.js"
   },
   "overrides": {
     "@whiskeysockets/baileys": {
