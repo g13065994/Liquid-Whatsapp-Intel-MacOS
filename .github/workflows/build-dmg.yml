@@ -68,19 +68,6 @@ jobs:
           path: dist/*.zip
           if-no-files-found: error
 
-      - name: Create GitHub release from branch build
-        if: github.ref == 'refs/heads/security-hardening-v2.3.1'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="v$(node -p "require('./package.json').version")-build.${GITHUB_RUN_NUMBER}"
-          echo "Creating release $TAG from commit $GITHUB_SHA"
-
-          gh release create "$TAG" dist/*.dmg dist/*.zip \
-            --target "$GITHUB_SHA" \
-            --title "Liquid WhatsApp $TAG" \
-            --generate-notes
-
       - name: Publish GitHub release assets
         if: startsWith(github.ref, 'refs/tags/v')
         run: echo "Release assets were published by electron-builder."
