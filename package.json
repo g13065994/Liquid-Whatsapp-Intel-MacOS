@@ -1,7 +1,7 @@
 {
   "name": "liquid-whatsapp",
-  "version": "2.3.0",
-  "description": "Liquid WhatsApp desktop client for macOS Catalina and Intel Macs — v2.3.0 WhatsApp Web calling bridge",
+  "version": "1.0.0",
+  "description": "Liquid WhatsApp desktop client for macOS Catalina and Intel Macs — v1.0.0 security hardening",
   "main": "main.js",
   "author": "Gerald(Mateo DEV)",
   "license": "MIT",
@@ -62,7 +62,9 @@
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Liquid WhatsApp uses the microphone to record voice notes.",
         "NSCameraUsageDescription": "Liquid WhatsApp uses the camera for supported calling features."
-      }
+      },
+      "strictVerify": true,
+      "gatekeeperAssess": false
     },
     "asarUnpack": [
       "node_modules/ffmpeg-static/**",
@@ -77,11 +79,25 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "Romeoisl",
-        "repo": "Whatsapp-MacOS-Intel",
+        "owner": "g13065994",
+        "repo": "Liquid-Whatsapp-Intel-MacOS",
         "releaseType": "release"
       }
-    ]
+    ],
+    "asar": {
+      "smartUnpack": true,
+      "disableIntegrity": false,
+      "disableSanityCheck": false
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true,
+      "loadBrowserProcessSpecificV8Snapshot": false,
+      "grantFileProtocolExtraPrivileges": false
+    }
   },
   "overrides": {
     "@whiskeysockets/baileys": {

@@ -14,7 +14,7 @@ All downloadable versions are published through **GitHub Releases**:
 
 **https://github.com/Romeoisl/Whatsapp-MacOS-Intel/releases**
 
-Each release has its own version tag, such as `v2.3.0`, so older versions remain available instead of being replaced by a temporary GitHub Actions artifact.
+Each release has its own version tag, such as `v1.0.0`, so older versions remain available instead of being replaced by a temporary GitHub Actions artifact.
 
 Release assets are built for **Intel x64 Macs**:
 
@@ -55,9 +55,9 @@ Release assets are built for **Intel x64 Macs**:
 - WhatsApp Web calling bridge for supported one-to-one voice/video calls
 - Optional screen/window sharing source selection through the WhatsApp Web calling window
 
-## v2.3.0 Calling Architecture
+## v1.0.0 Security and Calling Architecture
 
-Version 2.3.0 uses a **WhatsApp Web calling bridge** for the desktop call experience.
+Version 1.0.0 uses a **WhatsApp Web calling bridge** for the desktop call experience.
 
 When a user starts a one-to-one voice or video call, Liquid WhatsApp opens a dedicated Electron window containing **web.whatsapp.com** and lets WhatsApp Web handle the supported call/media flow. The window uses a persistent application session so the WhatsApp Web login can remain available between launches.
 
@@ -71,18 +71,35 @@ The project also contains legacy/internal VoIP/WASM calling dependencies from ea
 
 Electron recordings are normalized with the bundled `ffmpeg-static` binary before upload. Browser WebM/Opus recordings are converted to OGG/Opus for WhatsApp push-to-talk audio.
 
+## Electron security posture
+
+The main application renderer runs with:
+
+- `contextIsolation: true`
+- `nodeIntegration: false`
+- Electron renderer sandboxing enabled
+- a restrictive Content Security Policy in `renderer/index.html`
+- an allowlisted preload IPC surface
+- main-process IPC sender/frame validation
+- no direct renderer access to raw Baileys/WhatsApp message objects
+
+Raw protocol message objects needed for media download, reactions, forwarding, and quoted sends are kept in a bounded main-process cache and are never exposed through the renderer API. Local session files are also restricted to owner-only permissions where the filesystem supports POSIX modes.
+
+The separate WhatsApp Web calling window is independently sandboxed, has Node integration disabled, and is restricted to `https://web.whatsapp.com` for in-app navigation. Media and screen-capture permissions are explicitly scoped to that origin.
+
 ## Runtime integrity and modified-build detection
 
-Packaged macOS builds include a runtime integrity verifier. On startup, Liquid WhatsApp checks the application's macOS code signature and can distinguish:
+Packaged macOS builds include a runtime integrity verifier. On startup, Liquid WhatsApp checks the application's macOS code signature and Gatekeeper status. The verifier distinguishes:
 
 - **modified** — a previously signed app no longer passes strict signature verification.
-- **signed** — the app has a valid code signature.
-- **older** — a valid signed build is running while a newer GitHub Release is available.
+- **signed-unverified** — the app has a valid signature, but the build is not fully verified as a Developer ID + Hardened Runtime + Gatekeeper-accepted distribution.
+- **official** — the app has a valid Developer ID Application signature, Hardened Runtime, and Gatekeeper acceptance. This is a practical release-integrity classification; it does not independently prove that a notarization ticket is stapled.
+- **older** — a fully verified signed build is running while a newer GitHub Release is available.
 - **unsigned/development** — the build was not distributed with a verifiable signing identity.
 
-If a packaged signed application fails strict verification, Liquid WhatsApp closes instead of continuing to run the modified copy.
+If a packaged signed application fails strict verification, Liquid WhatsApp closes instead of continuing to run the modified copy. A merely valid but untrusted/ad-hoc signature is reported as `signed-unverified` rather than being mislabeled as an official release.
 
-The project also enables macOS Hardened Runtime for signed releases. Apple's code-signing and notarization system is the authoritative protection for distributed macOS applications; the runtime check is an additional application-level signal, not a replacement for Developer ID signing and notarization.
+The project enables the Hardened Runtime build setting. A GitHub Actions build is not automatically a notarized Developer ID release merely because this setting is enabled; the release must actually be signed/notarized with the appropriate Apple credentials. Apple's code-signing and notarization system remains the authoritative protection for distributed macOS applications, while the runtime check is only an additional application-level signal.
 
 ## Security, privacy and account risk
 
@@ -123,8 +140,8 @@ This creates a local Intel DMG and ZIP without publishing them.
 Update the version in `package.json`, commit it, then create and push a matching semantic version tag:
 
 ```bash
-git tag v2.3.0
-git push origin v2.3.0
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
 The GitHub Actions workflow runs for tags matching `v*.*.*`. It:
@@ -139,9 +156,9 @@ For example:
 
 ```text
 GitHub Releases
-└── v2.3.0
-    ├── Liquid-WhatsApp-2.3.0-Catalina-Intel.dmg
-    └── Liquid-WhatsApp-2.3.0-x64.zip
+└── v1.0.0
+    ├── Liquid-WhatsApp-1.0.0-Catalina-Intel.dmg
+    └── Liquid-WhatsApp-1.0.0-x64.zip
 ```
 
 GitHub Releases are the **only versioned download system** for the project. There is no separate release website.

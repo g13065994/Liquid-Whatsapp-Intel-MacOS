@@ -39,7 +39,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       spellcheck: true,
-      sandbox: false
+      sandbox: true
     }
   })
 
@@ -110,7 +110,7 @@ function openWhatsAppWebCall(targetJid, isVideo = false) {
       session: webSession,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       spellcheck: true
     }
   })
@@ -132,7 +132,7 @@ function openWhatsAppWebCall(targetJid, isVideo = false) {
               session: webSession,
               contextIsolation: true,
               nodeIntegration: false,
-              sandbox: false
+              sandbox: true
             }
           }
         }
@@ -144,16 +144,28 @@ function openWhatsAppWebCall(targetJid, isVideo = false) {
     return { action: 'deny' }
   })
 
-  webCallWin.webContents.on('will-navigate', (event, url) => {
+  const allowWebOrigin = (url) => {
     try {
-      const parsed = new URL(url)
-      if (parsed.origin !== 'https://web.whatsapp.com') {
-        event.preventDefault()
-        if (parsed.protocol === 'https:' || parsed.protocol === 'http:') shell.openExternal(parsed.toString())
-      }
+      return new URL(url).origin === 'https://web.whatsapp.com'
     } catch (_) {
-      event.preventDefault()
+      return false
     }
+  }
+
+  webCallWin.webContents.on('will-navigate', (event, url) => {
+    if (!allowWebOrigin(url)) {
+      event.preventDefault()
+      try {
+        const parsed = new URL(url)
+        if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+          shell.openExternal(parsed.toString())
+        }
+      } catch (_) {}
+    }
+  })
+
+  webCallWin.webContents.on('will-redirect', (event, url) => {
+    if (!allowWebOrigin(url)) event.preventDefault()
   })
 
   webCallWin.on('closed', () => { webCallWin = null })
@@ -184,6 +196,20 @@ function buildMenu() {
     ]}
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+function registerHandle(channel, listener) {
+  require('electron').ipcMain.handle(channel, (event, ...args) => {
+    if (!win || win.isDestroyed() || event.sender !== win.webContents) {
+      throw new Error('Unauthorized IPC sender')
+    }
+    const frameUrl = event.senderFrame?.url || ''
+    const expectedUrl = win.webContents.getURL()
+    if (!frameUrl || frameUrl !== expectedUrl) {
+      throw new Error('Unauthorized IPC frame')
+    }
+    return listener(event, ...args)
+  })
 }
 
 function safeHandler(fn) {
@@ -230,7 +256,7 @@ function getAiSecret() {
 }
 
 function registerIpc() {
-  ipcMain.handle('app:init', () => ({
+  registerHandle('app:init', () => ({
     hasSession: core.hasSession(),
     user: core.userInfo(),
     chats: core.chatList(),
@@ -239,11 +265,11 @@ function registerIpc() {
     starred: core.getStarred()
   }))
 
-  ipcMain.handle('core:pair', safeHandler((_e, number) => core.pairWithPhone(number)))
-  ipcMain.handle('core:logout', safeHandler(() => core.logout()))
-  ipcMain.handle('chat:set-active', (_e, jid) => core.setActiveJid(jid))
+  registerHandle('core:pair', safeHandler((_e, number) => core.pairWithPhone(number)))
+  registerHandle('core:logout', safeHandler(() => core.logout()))
+  registerHandle('chat:set-active', (_e, jid) => core.setActiveJid(jid))
 
-  ipcMain.handle('network:ping', safeHandler(async () => {
+  registerHandle('network:ping', safeHandler(async () => {
     const started = Date.now()
     await new Promise((resolve, reject) => {
       const req = https.get('https://web.whatsapp.com/favicon.ico', { timeout: 5000 }, (res) => {
@@ -257,12 +283,12 @@ function registerIpc() {
     return { ms: Date.now() - started }
   }))
 
-  ipcMain.handle('call:action', safeHandler((_e, action, callId, targetJid, isVideo) => core.callAction(action, callId, targetJid, !!isVideo)))
-  ipcMain.handle('whatsapp-web:call', safeHandler((_e, targetJid, isVideo) => openWhatsAppWebCall(targetJid, !!isVideo)))
+  registerHandle('call:action', safeHandler((_e, action, callId, targetJid, isVideo) => core.callAction(action, callId, targetJid, !!isVideo)))
+  registerHandle('whatsapp-web:call', safeHandler((_e, targetJid, isVideo) => openWhatsAppWebCall(targetJid, !!isVideo)))
 
-  ipcMain.handle('chat:send-text', safeHandler((_e, jid, text, quoted) => core.sendText(jid, text, quoted)))
+  registerHandle('chat:send-text', safeHandler((_e, jid, text, quoted) => core.sendText(jid, text, quoted)))
 
-  ipcMain.handle('chat:send-image', safeHandler(async (_e, jid, caption, quoted) => {
+  registerHandle('chat:send-image', safeHandler(async (_e, jid, caption, quoted) => {
     const file = await chooseFile('Choose an image', [
       { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic'] }
     ])
@@ -271,9 +297,9 @@ function registerIpc() {
     return { ok: true }
   }))
 
-  ipcMain.handle('chat:send-dropped-media', safeHandler((_e, jid, filePath, caption, quoted) => core.sendMedia(jid, filePath, caption || '', quoted)))
+  registerHandle('chat:send-dropped-media', safeHandler((_e, jid, filePath, caption, quoted) => core.sendDroppedMedia(jid, filePath, caption || '', quoted)))
 
-  ipcMain.handle('chat:send-media', safeHandler(async (_e, jid, caption, quoted) => {
+  registerHandle('chat:send-media', safeHandler(async (_e, jid, caption, quoted) => {
     const file = await chooseFile('Choose a file', [
       { name: 'Media and documents', extensions: [
         'jpg','jpeg','png','gif','webp','heic','mp4','mov','m4v',
@@ -286,7 +312,7 @@ function registerIpc() {
     return { ok: true }
   }))
 
-  ipcMain.handle('chat:send-voice-note', safeHandler(async (_e, jid, dataUrl, durationMs, quoted) => {
+  registerHandle('chat:send-voice-note', safeHandler(async (_e, jid, dataUrl, durationMs, quoted) => {
     if (!jid || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:audio/')) throw new Error('Invalid voice note')
     const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/)
     if (!match) throw new Error('Invalid voice note data')
@@ -303,27 +329,27 @@ function registerIpc() {
     }
   }))
 
-  ipcMain.handle('chat:typing', (_e, jid, on) => core.sendTyping(jid, on))
-  ipcMain.handle('chat:load', safeHandler((_e, jid) => core.loadMessages(jid, 80)))
-  ipcMain.handle('chat:search', safeHandler((_e, q, jid) => core.searchMessages(q, jid)))
-  ipcMain.handle('chat:meta', safeHandler((_e, jid, patch) => core.setChatMeta(jid, patch)))
-  ipcMain.handle('chat:archive', safeHandler((_e, jid, value) => core.archiveChat(jid, value)))
-  ipcMain.handle('chat:pin', safeHandler((_e, jid, value) => core.pinChat(jid, value)))
-  ipcMain.handle('chat:mute', safeHandler((_e, jid, value) => core.muteChat(jid, value)))
-  ipcMain.handle('group:action', safeHandler((_e, jid, action, participants) => core.groupAction(jid, action, participants)))
-  ipcMain.handle('group:subject', safeHandler((_e, jid, subject) => core.groupUpdateSubject(jid, subject)))
-  ipcMain.handle('group:leave', safeHandler((_e, jid) => core.groupLeave(jid)))
-  ipcMain.handle('chat:read', safeHandler((_e, jid, ids) => core.readMessages(jid, ids)))
-  ipcMain.handle('chat:edit', safeHandler((_e, jid, id, text) => core.editMessage(jid, id, text)))
-  ipcMain.handle('chat:delete', safeHandler((_e, jid, id) => core.deleteMessage(jid, id)))
-  ipcMain.handle('chat:react', safeHandler((_e, jid, msg, reaction) => core.reactMessage(jid, msg, reaction)))
-  ipcMain.handle('chat:forward', safeHandler((_e, msg, targetJid) => core.forwardMessage(msg.jid, msg, targetJid)))
-  ipcMain.handle('chat:poll', safeHandler((_e, jid, name, options, pollSettings) => core.sendPoll(jid, name, options, pollSettings)))
-  ipcMain.handle('chat:viewonce', safeHandler((_e, jid, text) => core.sendViewOnce(jid, text)))
-  ipcMain.handle('chat:broadcast', safeHandler((_e, jids, text) => core.sendBroadcast(jids, text)))
-  ipcMain.handle('chat:mention-all', safeHandler((_e, jid, text) => core.sendMentionAll(jid, text)))
-  ipcMain.handle('chat:disappear', safeHandler((_e, jid, sec) => core.setDisappearing(jid, sec)))
-  ipcMain.handle('chat:sticker', safeHandler(async (_e, jid) => {
+  registerHandle('chat:typing', (_e, jid, on) => core.sendTyping(jid, on))
+  registerHandle('chat:load', safeHandler((_e, jid) => core.loadMessages(jid, 80)))
+  registerHandle('chat:search', safeHandler((_e, q, jid) => core.searchMessages(q, jid)))
+  registerHandle('chat:meta', safeHandler((_e, jid, patch) => core.setChatMeta(jid, patch)))
+  registerHandle('chat:archive', safeHandler((_e, jid, value) => core.archiveChat(jid, value)))
+  registerHandle('chat:pin', safeHandler((_e, jid, value) => core.pinChat(jid, value)))
+  registerHandle('chat:mute', safeHandler((_e, jid, value) => core.muteChat(jid, value)))
+  registerHandle('group:action', safeHandler((_e, jid, action, participants) => core.groupAction(jid, action, participants)))
+  registerHandle('group:subject', safeHandler((_e, jid, subject) => core.groupUpdateSubject(jid, subject)))
+  registerHandle('group:leave', safeHandler((_e, jid) => core.groupLeave(jid)))
+  registerHandle('chat:read', safeHandler((_e, jid, ids) => core.readMessages(jid, ids)))
+  registerHandle('chat:edit', safeHandler((_e, jid, id, text) => core.editMessage(jid, id, text)))
+  registerHandle('chat:delete', safeHandler((_e, jid, id) => core.deleteMessage(jid, id)))
+  registerHandle('chat:react', safeHandler((_e, jid, msg, reaction) => core.reactMessage(jid, msg, reaction)))
+  registerHandle('chat:forward', safeHandler((_e, msg, targetJid) => core.forwardMessage(msg.jid, msg, targetJid)))
+  registerHandle('chat:poll', safeHandler((_e, jid, name, options, pollSettings) => core.sendPoll(jid, name, options, pollSettings)))
+  registerHandle('chat:viewonce', safeHandler((_e, jid, text) => core.sendViewOnce(jid, text)))
+  registerHandle('chat:broadcast', safeHandler((_e, jids, text) => core.sendBroadcast(jids, text)))
+  registerHandle('chat:mention-all', safeHandler((_e, jid, text) => core.sendMentionAll(jid, text)))
+  registerHandle('chat:disappear', safeHandler((_e, jid, sec) => core.setDisappearing(jid, sec)))
+  registerHandle('chat:sticker', safeHandler(async (_e, jid) => {
     const file = await chooseFile('Choose a WebP sticker', [
       { name: 'WebP stickers', extensions: ['webp'] }
     ])
@@ -332,14 +358,14 @@ function registerIpc() {
     return { ok: true }
   }))
 
-  ipcMain.handle('chat:star', safeHandler((_e, m) => core.toggleStarred(m)))
-  ipcMain.handle('chat:starred', () => core.getStarred())
-  ipcMain.handle('media:download', safeHandler((_e, dto) => core.downloadMedia(dto)))
-  ipcMain.handle('contacts:list', () => core.contactList())
-  ipcMain.handle('group:participants', safeHandler((_e, jid) => core.groupParticipants(jid)))
+  registerHandle('chat:star', safeHandler((_e, m) => core.toggleStarred(m)))
+  registerHandle('chat:starred', () => core.getStarred())
+  registerHandle('media:download', safeHandler((_e, dto) => core.downloadMedia(dto)))
+  registerHandle('contacts:list', () => core.contactList())
+  registerHandle('group:participants', safeHandler((_e, jid) => core.groupParticipants(jid)))
 
-  ipcMain.handle('status:post', safeHandler((_e, text) => core.postStatus(text)))
-  ipcMain.handle('status:post-image', safeHandler(async (_e, caption) => {
+  registerHandle('status:post', safeHandler((_e, text) => core.postStatus(text)))
+  registerHandle('status:post-image', safeHandler(async (_e, caption) => {
     const file = await chooseFile('Choose a status image', [
       { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp'] }
     ])
@@ -348,10 +374,10 @@ function registerIpc() {
     return { ok: true }
   }))
 
-  ipcMain.handle('privacy:set', safeHandler((_e, key, value) => core.setPrivacy(key, value)))
-  ipcMain.handle('settings:get', () => core.getSettings())
-  ipcMain.handle('settings:set', safeHandler((_e, patch) => core.setSettings(patch)))
-  ipcMain.handle('ai:set-key', safeHandler(async (_e, key) => {
+  registerHandle('privacy:set', safeHandler((_e, key, value) => core.setPrivacy(key, value)))
+  registerHandle('settings:get', () => core.getSettings())
+  registerHandle('settings:set', safeHandler((_e, patch) => core.setSettings(patch)))
+  registerHandle('ai:set-key', safeHandler(async (_e, key) => {
     const value = String(key || '').trim()
     if (!value) return false
     if (!safeStorage.isEncryptionAvailable()) {
@@ -362,7 +388,7 @@ function registerIpc() {
     return true
   }))
 
-  ipcMain.handle('ai:call', safeHandler(async (_e, messages) => {
+  registerHandle('ai:call', safeHandler(async (_e, messages) => {
     const key = getAiSecret()
     if (!key) throw new Error('Set your API key in Settings → AI first')
     const ai = core.getSettings().ai || {}
@@ -400,7 +426,7 @@ function registerIpc() {
     return { text }
   }))
 
-  ipcMain.handle('ai:image', safeHandler(async (_e, prompt) => {
+  registerHandle('ai:image', safeHandler(async (_e, prompt) => {
     const key = getAiSecret()
     const ai = core.getSettings().ai || {}
     if (ai.provider !== 'openai' || !key) {
@@ -416,9 +442,9 @@ function registerIpc() {
     return data.data?.[0]?.url || ''
   }))
 
-  ipcMain.handle('integrity:get', () => getIntegrityStatus())
+  registerHandle('integrity:get', () => getIntegrityStatus())
 
-  ipcMain.handle('diagnostics:get', async () => {
+  registerHandle('diagnostics:get', async () => {
     const totalMem = os.totalmem()
     const freeMem = os.freemem()
     let storage = null
@@ -461,13 +487,13 @@ function registerIpc() {
     }
   })
 
-  ipcMain.handle('session:info', () => core.getLinkedSession())
-  ipcMain.handle('local:info', () => core.localDatabaseInfo())
-  ipcMain.handle('local:clear-backups', safeHandler(() => core.clearBackups()))
-  ipcMain.handle('calls:history', () => core.getCallHistory())
-  ipcMain.handle('calls:clear-history', safeHandler(() => core.clearCallHistory()))
-  ipcMain.handle('calls:create-link', safeHandler((_e, type) => core.createCallLink(type)))
-  ipcMain.handle('local:export', safeHandler(async () => {
+  registerHandle('session:info', () => core.getLinkedSession())
+  registerHandle('local:info', () => core.localDatabaseInfo())
+  registerHandle('local:clear-backups', safeHandler(() => core.clearBackups()))
+  registerHandle('calls:history', () => core.getCallHistory())
+  registerHandle('calls:clear-history', safeHandler(() => core.clearCallHistory()))
+  registerHandle('calls:create-link', safeHandler((_e, type) => core.createCallLink(type)))
+  registerHandle('local:export', safeHandler(async () => {
     const res = await dialog.showSaveDialog(win, {
       title: 'Export Liquid WhatsApp data',
       defaultPath: path.join(app.getPath('documents'), `Liquid-WhatsApp-backup-${new Date().toISOString().slice(0,10)}.json`),
@@ -477,19 +503,24 @@ function registerIpc() {
     fs.writeFileSync(res.filePath, JSON.stringify(core.exportLocalData(), null, 2), 'utf8')
     return { ok: true, path: res.filePath }
   }))
-  ipcMain.handle('autoreply:add', safeHandler((_e, rule) => core.addAutoReply(rule)))
-  ipcMain.handle('autoreply:remove', safeHandler((_e, id) => core.removeAutoReply(id)))
-  ipcMain.handle('schedule:list', () => core.getSchedules())
-  ipcMain.handle('schedule:add', safeHandler((_e, s) => core.addSchedule(s)))
-  ipcMain.handle('schedule:remove', safeHandler((_e, id) => core.removeSchedule(id)))
+  registerHandle('autoreply:add', safeHandler((_e, rule) => core.addAutoReply(rule)))
+  registerHandle('autoreply:remove', safeHandler((_e, id) => core.removeAutoReply(id)))
+  registerHandle('schedule:list', () => core.getSchedules())
+  registerHandle('schedule:add', safeHandler((_e, s) => core.addSchedule(s)))
+  registerHandle('schedule:remove', safeHandler((_e, id) => core.removeSchedule(id)))
 
-  ipcMain.handle('update:check', safeHandler(() => checkForUpdates(true)))
-  ipcMain.handle('update:download', safeHandler(() => downloadUpdate()))
-  ipcMain.handle('update:install', safeHandler(() => installUpdate()))
+  registerHandle('update:check', safeHandler(() => checkForUpdates(true)))
+  registerHandle('update:download', safeHandler(() => downloadUpdate()))
+  registerHandle('update:install', safeHandler(() => installUpdate()))
 
-  ipcMain.handle('external:open', safeHandler((_e, url) => {
-    if (!/^https?:\/\//i.test(String(url))) throw new Error('Only http(s) links can be opened')
-    return shell.openExternal(String(url))
+  registerHandle('external:open', safeHandler((_e, url) => {
+    const value = String(url || '').trim()
+    let parsed
+    try { parsed = new URL(value) } catch (_) { throw new Error('Invalid external URL') }
+    if (!['https:', 'http:'].includes(parsed.protocol)) {
+      throw new Error('Only http(s) links can be opened')
+    }
+    return shell.openExternal(parsed.toString())
   }))
 }
 
@@ -520,7 +551,7 @@ function setupAutoUpdater() {
   // it needs when a valid blockmap is available.
   autoUpdater.disableDifferentialDownload = false
   autoUpdater.previousBlockmapBaseUrlOverride =
-    `https://github.com/Romeoisl/Whatsapp-MacOS-Intel/releases/download/v${app.getVersion()}/`
+    `https://github.com/g13065994/Liquid-Whatsapp-Intel-MacOS/releases/download/v${app.getVersion()}/`
 
   autoUpdater.on('checking-for-update', () => forward('update:checking', { version: app.getVersion() }))
   autoUpdater.on('update-available', (info) => {
@@ -623,10 +654,11 @@ core.on('notify', (items) => {
 
 app.whenReady().then(() => {
   const integrity = getIntegrityStatus()
+
   if (shouldBlock(integrity)) {
     dialog.showErrorBox(
       'Liquid WhatsApp integrity check failed',
-      'This copy of Liquid WhatsApp appears to have been modified after it was signed. For your security, the app will close. Install the release again from the official GitHub Releases page.'
+      'The Liquid WhatsApp application archive failed its cryptographic integrity check. The core app payload may be corrupted or modified. For your security, the app will close. Install the release again from the official GitHub Releases page.'
     )
     app.quit()
     return

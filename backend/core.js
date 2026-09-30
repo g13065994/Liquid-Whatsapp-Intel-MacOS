@@ -1,6 +1,7 @@
 const { EventEmitter } = require('events')
 const fs = require('fs')
 const path = require('path')
+const os = require('os')
 const crypto = require('crypto')
 const { execFile } = require('child_process')
 const { promisify } = require('util')
@@ -70,7 +71,12 @@ class WhatsAppCore extends EventEmitter {
     this.contacts = new Map()
     this.presence = new Map()
     this.groupNames = new Map()
+    // Active message windows are intentionally capped for older Intel Macs.
+    // Persistent history remains in LocalMessageStore on disk.
     this.messageStore = new Map()
+    this.messageWindowLimit = 100
+    this.rawMessages = new Map()
+    this.rawMessageWindowLimit = 100
     this.connectTimer = null
     this.tickBusy = false
     this.settings = this._readJson(this.settingsFile, {
@@ -128,8 +134,15 @@ class WhatsAppCore extends EventEmitter {
   async _connect() {
     if (this.sock) return this.sock
 
-    fs.mkdirSync(this.sessionDir, { recursive: true })
+    fs.mkdirSync(this.sessionDir, { recursive: true, mode: 0o700 })
+    try { fs.chmodSync(this.sessionDir, 0o700) } catch (_) {}
     const { state, saveCreds } = await useMultiFileAuthState(this.sessionDir)
+    try {
+      for (const name of fs.readdirSync(this.sessionDir)) {
+        const file = path.join(this.sessionDir, name)
+        if (fs.statSync(file).isFile()) fs.chmodSync(file, 0o600)
+      }
+    } catch (_) {}
 
     this.connection = 'connecting'
     this.emit('connection', { connection: 'connecting' })
@@ -351,6 +364,7 @@ class WhatsAppCore extends EventEmitter {
     this.contacts.clear()
     this.presence.clear()
     this.messageStore.clear()
+    this.rawMessages.clear()
     this.emit('connection', { connection: 'idle', loggedOut: true })
     this.emit('chats', [])
   }
@@ -384,13 +398,20 @@ class WhatsAppCore extends EventEmitter {
     const list = messages.map((m) => this._msgDto(m)).filter((m) => m.id && m.jid)
     if (!list.length) return
 
+    for (const raw of messages) {
+      const key = raw?.key || {}
+      if (key.remoteJid && key.id) this._rememberRawMessage(key.remoteJid, key.id, raw)
+    }
+
     for (const dto of list) {
       const arr = this.messageStore.get(dto.jid) || []
       const existing = arr.findIndex((m) => m.id === dto.id)
       if (existing >= 0) arr[existing] = dto
       else arr.push(dto)
       arr.sort((a, b) => a.timestamp - b.timestamp)
-      if (arr.length > 500) arr.splice(0, arr.length - 500)
+      if (arr.length > this.messageWindowLimit) {
+        arr.splice(0, arr.length - this.messageWindowLimit)
+      }
       this.messageStore.set(dto.jid, arr)
     }
 
@@ -402,7 +423,9 @@ class WhatsAppCore extends EventEmitter {
       byJid.get(dto.jid).push(dto)
     }
     for (const [jid, messagesForChat] of byJid) {
-      this._persistLocalMessages(jid)
+      // Persist the incoming batch independently of the bounded RAM window.
+      // Older entries may already have been evicted from messageStore.
+      this._persistLocalMessages(jid, messagesForChat)
       this.emit('messages', { jid, messages: messagesForChat })
     }
 
@@ -424,8 +447,22 @@ class WhatsAppCore extends EventEmitter {
     }
     for (const [jid, statusUpdates] of byJid) {
       const arr = this.messageStore.get(jid) || []
-      for (const u of statusUpdates) { const m = arr.find(x => x.id === u.id); if (m) m.status = u.status }
-      this._persistLocalMessages(jid)
+      const changed = []
+
+      for (const u of statusUpdates) {
+        let message = arr.find(x => x.id === u.id)
+
+        if (!message) {
+          const persisted = this.localDb.index.get(jid)?.get(u.id)
+          if (persisted) message = { ...persisted }
+        }
+
+        if (!message) continue
+        message.status = u.status
+        changed.push(message)
+      }
+
+      this._persistLocalMessages(jid, changed)
       this.emit('messages', { jid, statusUpdates })
     }
   }
@@ -519,7 +556,8 @@ class WhatsAppCore extends EventEmitter {
       this.emit('outbox', { count: this.outbox.length })
       return { queued: true }
     }
-    const options = quoted?.raw ? { quoted: quoted.raw } : {}
+    const quotedRaw = quoted?.id && quoted?.jid ? this._getRawMessage(quoted.jid, quoted.id) : null
+    const options = quotedRaw ? { quoted: quotedRaw } : {}
     await this.sock.sendMessage(jid, { text: value }, options)
   }
 
@@ -530,15 +568,35 @@ class WhatsAppCore extends EventEmitter {
       image: fs.readFileSync(filePath),
       mimetype: MIME[ext] || 'image/jpeg',
       caption: caption || undefined
-    }, quoted?.raw ? { quoted: quoted.raw } : {})
+    }, (() => {
+      const quotedRaw = quoted?.id && quoted?.jid ? this._getRawMessage(quoted.jid, quoted.id) : null
+      return quotedRaw ? { quoted: quotedRaw } : {}
+    })())
+  }
+
+  _readUserMediaFile(filePath, { dropped = false } = {}) {
+    if (!filePath || typeof filePath !== 'string') throw new Error('No file selected')
+    const resolved = path.resolve(filePath)
+    if (dropped) {
+      const home = path.resolve(os.homedir())
+      const allowedRoots = ['Desktop', 'Documents', 'Downloads', 'Movies', 'Music', 'Pictures']
+        .map((name) => path.join(home, name))
+      const allowed = allowedRoots.some((root) => resolved === root || resolved.startsWith(root + path.sep))
+      if (!allowed) throw new Error('Dropped files must come from a standard user media folder')
+    }
+    const stat = fs.statSync(resolved)
+    if (!stat.isFile()) throw new Error('Selected path is not a regular file')
+    if (stat.size > 100 * 1024 * 1024) throw new Error('Media file is too large (maximum 100 MB)')
+    const ext = path.extname(resolved).toLowerCase()
+    const mime = MIME[ext]
+    if (!mime) throw new Error('Unsupported media file type')
+    return { path: resolved, ext, mime, data: fs.readFileSync(resolved) }
   }
 
   async sendMedia(jid, filePath, caption = '', quoted) {
     this._requireOpen()
-    if (!filePath) throw new Error('No file selected')
-    const ext = path.extname(filePath).toLowerCase()
-    const mime = MIME[ext] || 'application/octet-stream'
-    const data = fs.readFileSync(filePath)
+    const media = this._readUserMediaFile(filePath)
+    const { path: resolved, ext, mime, data } = media
     let payload
 
     if (mime.startsWith('image/')) {
@@ -551,11 +609,35 @@ class WhatsAppCore extends EventEmitter {
       payload = {
         document: data,
         mimetype: mime,
-        fileName: path.basename(filePath),
+        fileName: path.basename(resolved),
         caption: caption || undefined
       }
     }
-    await this.sock.sendMessage(jid, payload, quoted?.raw ? { quoted: quoted.raw } : {})
+const quotedRaw = quoted?.id && quoted?.jid ? this._getRawMessage(quoted.jid, quoted.id) : null
+    await this.sock.sendMessage(jid, payload, quotedRaw ? { quoted: quotedRaw } : {})
+  }
+
+  async sendDroppedMedia(jid, filePath, caption = '', quoted) {
+    this._requireOpen()
+    const media = this._readUserMediaFile(filePath, { dropped: true })
+    const { path: resolved, ext, mime, data } = media
+    let payload
+    if (mime.startsWith('image/')) {
+      payload = { image: data, mimetype: mime, caption: caption || undefined }
+    } else if (mime.startsWith('video/')) {
+      payload = { video: data, mimetype: mime, caption: caption || undefined }
+    } else if (mime.startsWith('audio/')) {
+      payload = { audio: data, mimetype: mime, ptt: false }
+    } else {
+      payload = {
+        document: data,
+        mimetype: mime,
+        fileName: path.basename(resolved),
+        caption: caption || undefined
+      }
+    }
+const quotedRaw = quoted?.id && quoted?.jid ? this._getRawMessage(quoted.jid, quoted.id) : null
+    await this.sock.sendMessage(jid, payload, quotedRaw ? { quoted: quotedRaw } : {})
   }
 
   async sendVoiceNote(jid, filePath, quoted) {
@@ -583,7 +665,7 @@ class WhatsAppCore extends EventEmitter {
         audio: data,
         mimetype: 'audio/ogg; codecs=opus',
         ptt: true
-      }, quoted?.raw ? { quoted: quoted.raw } : {})
+      }, (() => { const quotedRaw = quoted?.id && quoted?.jid ? this._getRawMessage(quoted.jid, quoted.id) : null; return quotedRaw ? { quoted: quotedRaw } : {} })())
     } catch (err) {
       const detail = err?.stderr?.trim() || err?.message || 'FFmpeg conversion failed'
       throw new Error(`Voice note conversion failed: ${detail}`)
@@ -669,9 +751,15 @@ class WhatsAppCore extends EventEmitter {
     this._requireOpen(); await this.sock.groupLeave(jid); return true
   }
 
-  _persistLocalMessages(jid) {
-    const arr = (this.messageStore.get(jid) || []).map(m => ({ ...m, raw: undefined }))
-    this.localMessages[jid] = arr
+  _persistLocalMessages(jid, messages = this.messageStore.get(jid) || []) {
+    const arr = (messages || [])
+      .filter((m) => m?.id)
+      .map(m => ({ ...m, raw: undefined }))
+
+    if (!arr.length) return
+
+    this.localMessages[jid] = (this.messageStore.get(jid) || [])
+      .map(m => ({ ...m, raw: undefined }))
     this.localDb.upsertMany(jid, arr)
 
     // The legacy JSON file is only for migration/backwards compatibility.
@@ -719,7 +807,7 @@ class WhatsAppCore extends EventEmitter {
     return {
       schema: 2,
       exportedAt: new Date().toISOString(),
-      settings: this.settings,
+      settings: (() => { const copy = { ...(this.settings || {}), ai: { ...(this.settings?.ai || {}) } }; delete copy.ai.key; delete copy.ai.keyEncrypted; return copy })(),
       chatMeta: this.chatMeta,
       starred: this.starred,
       callHistory: this.callHistory,
@@ -742,8 +830,9 @@ class WhatsAppCore extends EventEmitter {
 
   async downloadMedia(msgDto) {
     this._requireOpen()
-    if (!msgDto?.raw) throw new Error('Media source is unavailable')
-    const buf = await downloadMediaMessage(msgDto.raw, 'buffer', {}, { logger })
+    const raw = msgDto?.jid && msgDto?.id ? this._getRawMessage(msgDto.jid, msgDto.id) : null
+    if (!raw) throw new Error('Media source is unavailable')
+    const buf = await downloadMediaMessage(raw, 'buffer', {}, { logger })
     const mime = msgDto.mime || 'application/octet-stream'
     return { mime, dataUrl: `data:${mime};base64,${buf.toString('base64')}` }
   }
@@ -767,16 +856,18 @@ class WhatsAppCore extends EventEmitter {
 
   async reactMessage(jid, msgDto, reaction) {
     this._requireOpen()
-    if (!msgDto?.raw?.key) throw new Error('Message key is unavailable')
+    const raw = msgDto?.jid && msgDto?.id ? this._getRawMessage(msgDto.jid, msgDto.id) : null
+    if (!raw?.key) throw new Error('Message key is unavailable')
     await this.sock.sendMessage(jid, {
-      react: { text: reaction || '', key: msgDto.raw.key }
+      react: { text: reaction || '', key: raw.key }
     })
   }
 
   async forwardMessage(jid, msgDto, targetJid) {
     this._requireOpen()
-    if (!msgDto?.raw || !targetJid) throw new Error('Message cannot be forwarded')
-    await this.sock.sendMessage(targetJid, { forward: msgDto.raw })
+    const raw = msgDto?.jid && msgDto?.id ? this._getRawMessage(msgDto.jid, msgDto.id) : null
+    if (!raw || !targetJid) throw new Error('Message cannot be forwarded')
+    await this.sock.sendMessage(targetJid, { forward: raw })
   }
 
   async sendPoll(jid, name, options, settings = {}) {
@@ -1056,6 +1147,30 @@ class WhatsAppCore extends EventEmitter {
       c.documentMessage?.caption || ''
   }
 
+  _rememberRawMessage(jid, id, raw) {
+    if (!jid || !id || !raw) return
+
+    let bucket = this.rawMessages.get(jid)
+    if (!bucket) {
+      bucket = new Map()
+      this.rawMessages.set(jid, bucket)
+    }
+
+    // Map insertion order acts as a lightweight per-thread LRU queue.
+    if (bucket.has(id)) bucket.delete(id)
+    bucket.set(id, raw)
+
+    while (bucket.size > this.rawMessageWindowLimit) {
+      const oldest = bucket.keys().next().value
+      if (oldest === undefined) break
+      bucket.delete(oldest)
+    }
+  }
+
+  _getRawMessage(jid, id) {
+    return this.rawMessages.get(jid)?.get(id) || null
+  }
+
   _msgDto(m) {
     const key = m?.key || {}
     const c = m?.message || {}
@@ -1101,10 +1216,14 @@ class WhatsAppCore extends EventEmitter {
       timestamp: m.messageTimestamp ? Number(m.messageTimestamp) * 1000 : Date.now(),
       text, kind, mime, caption,
       pushName: m.pushName || '',
-      raw: m,
       status: key.fromMe ? (m.status || 'PENDING') : undefined,
       quoted: c.extendedTextMessage?.contextInfo?.quotedMessage
-        ? { participant: c.extendedTextMessage.contextInfo.participant || '', text: c.extendedTextMessage.contextInfo.quotedMessage.conversation || c.extendedTextMessage.contextInfo.quotedMessage.extendedTextMessage?.text || '' }
+        ? {
+            id: c.extendedTextMessage.contextInfo.stanzaId || '',
+            jid: key.remoteJid || '',
+            participant: c.extendedTextMessage.contextInfo.participant || '',
+            text: c.extendedTextMessage.contextInfo.quotedMessage.conversation || c.extendedTextMessage.contextInfo.quotedMessage.extendedTextMessage?.text || ''
+          }
         : null
     }
   }

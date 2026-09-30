@@ -347,9 +347,10 @@ function wireStaticUI() {
     const status = $('update-status')
     if (status) status.textContent = 'Update download cancelled.'
   })
-  api.on('update-not-available', () => {
+  api.on('update-not-available', (info) => {
     const status = $('update-status')
-    if (status) status.textContent = `Liquid WhatsApp is up to date (v${'')}`
+    const version = info?.version || 'current'
+    if (status) status.textContent = `Liquid WhatsApp is up to date (v${version})`
   })
   $('btn-voice').addEventListener('click', () => voiceRecorder ? finishVoiceNote(true) : startVoiceNote())
   $('voice-cancel').addEventListener('click', cancelVoiceNote)
