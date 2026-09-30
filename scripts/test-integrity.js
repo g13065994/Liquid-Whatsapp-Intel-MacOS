@@ -1,4 +1,8 @@
 const assert = require('assert')
+const crypto = require('crypto')
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
 const integrity = require('../backend/integrity')
 
 assert.strictEqual(
@@ -50,3 +54,24 @@ assert.strictEqual(
 )
 
 console.log('Integrity regression checks passed.')
+
+
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'liquid-asar-'))
+try {
+  const header = Buffer.from(JSON.stringify({ files: { 'main.js': { size: 3, offset: '0' } } }), 'utf8')
+  const prefix = Buffer.alloc(16)
+  prefix.writeUInt32LE(8 + header.length, 4)
+  prefix.writeUInt32LE(header.length, 12)
+  const asarPath = path.join(tempDir, 'app.asar')
+  fs.writeFileSync(asarPath, Buffer.concat([prefix, header, Buffer.from('abc')]))
+
+  const parsed = integrity.parseAsarHeader(asarPath)
+  const expected = crypto.createHash('sha256').update(header).digest('hex')
+  const anchor = integrity.validateHeaderAnchor(parsed.headerBuffer, expected)
+
+  assert.strictEqual(anchor.matches, true)
+  assert.strictEqual(anchor.actualHash, expected)
+  assert.strictEqual(parsed.dataOffset, 8 + 8 + header.length)
+} finally {
+  fs.rmSync(tempDir, { recursive: true, force: true })
+}
