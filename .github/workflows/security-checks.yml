@@ -16,3 +16,41 @@ jobs:
           node-version: 20
       - name: Check JavaScript syntax
         run: npm run check
+  release:
+    name: Build and publish v1.0.0
+    if: github.event_name == 'pull_request' && github.event.pull_request.number == 1 && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: macos-15-intel
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Catalina Intel release
+        run: npm run build:catalina
+
+      - name: Replace old build.11 release and publish v1.0.0
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v1.0.0-build.11 >/dev/null 2>&1; then
+            gh release delete v1.0.0-build.11 --yes --cleanup-tag
+          fi
+
+          if gh release view v1.0.0 >/dev/null 2>&1; then
+            echo "v1.0.0 already exists; refusing to replace an immutable release."
+            exit 1
+          fi
+
+          gh release create v1.0.0 dist/*.dmg dist/*.zip \
+            --target "${{ github.event.pull_request.head.sha }}" \
+            --title "Liquid WhatsApp v1.0.0" \
+            --generate-notes
