@@ -658,7 +658,7 @@ app.whenReady().then(() => {
   if (shouldBlock(integrity)) {
     dialog.showErrorBox(
       'Liquid WhatsApp integrity check failed',
-      'This copy of Liquid WhatsApp appears to have been modified after it was signed. For your security, the app will close. Install the release again from the official GitHub Releases page.'
+      'The Liquid WhatsApp application archive failed its cryptographic integrity check. The core app payload may be corrupted or modified. For your security, the app will close. Install the release again from the official GitHub Releases page.'
     )
     app.quit()
     return
