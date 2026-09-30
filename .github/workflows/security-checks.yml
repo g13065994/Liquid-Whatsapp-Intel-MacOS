@@ -18,13 +18,13 @@ jobs:
         run: npm run check
   release:
     name: Build and publish v1.0.0
-    if: github.event_name == 'pull_request' && github.event.pull_request.number == 1 && github.event.pull_request.head.repo.full_name == github.repository
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/security-hardening-v2.3.1' && github.event.before == '66c25229ac84e0871ed11ec882d90a617c62bd66') || (github.event_name == 'pull_request' && github.event.pull_request.number == 1 && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: macos-15-intel
     steps:
       - name: Checkout release source
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: 66c25229ac84e0871ed11ec882d90a617c62bd66
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -41,9 +41,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view v1.0.0-build.11 >/dev/null 2>&1; then
-            gh release delete v1.0.0-build.11 --yes --cleanup-tag
-          fi
+          for tag in $(gh release list --limit 100 --json tagName --jq '.[] | select(.tagName | startswith("v1.0.0-build.")) | .tagName'); do
+            echo "Deleting obsolete release $tag"
+            gh release delete "$tag" --yes --cleanup-tag
+          done
 
           if gh release view v1.0.0 >/dev/null 2>&1; then
             echo "v1.0.0 already exists; refusing to replace an immutable release."
@@ -51,6 +52,6 @@ jobs:
           fi
 
           gh release create v1.0.0 dist/*.dmg dist/*.zip \
-            --target "${{ github.event.pull_request.head.sha }}" \
+            --target "66c25229ac84e0871ed11ec882d90a617c62bd66" \
             --title "Liquid WhatsApp v1.0.0" \
             --generate-notes
