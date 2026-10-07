@@ -30,13 +30,13 @@ jobs:
           git checkout "$TARGET_BRANCH"
           if git diff --quiet -- package-lock.json; then
             echo "package-lock.json is already current."
-            exit 0
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add package-lock.json
+            git commit -m "chore: add reproducible npm lockfile"
+            git push origin "HEAD:$TARGET_BRANCH"
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package-lock.json
-          git commit -m "chore: add reproducible npm lockfile"
-          git push origin "HEAD:$TARGET_BRANCH"
       - name: Upload generated lockfile
         uses: actions/upload-artifact@v4
         with:
