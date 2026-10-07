@@ -38,7 +38,7 @@ jobs:
   syntax:
     name: Syntax checks
     needs: lockfile
-    if: needs.lockfile.result == 'success'
+    if: always() && (github.event_name == 'pull_request' || needs.lockfile.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -68,7 +68,7 @@ jobs:
   build:
     name: Release-branch build validation
     needs: [lockfile, syntax, audit]
-    if: needs.lockfile.result == 'success' && needs.syntax.result == 'success' && needs.audit.result == 'success'
+    if: always() && (github.event_name == 'pull_request' || needs.lockfile.result == 'success') && needs.syntax.result == 'success' && needs.audit.result == 'success'
     runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
