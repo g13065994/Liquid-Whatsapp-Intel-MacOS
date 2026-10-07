@@ -94,6 +94,9 @@
     "@whiskeysockets/baileys": {
       "@whiskeysockets/eslint-config": "1.0.0"
     },
-    "@whiskeysockets/eslint-config": "1.0.0"
+    "@whiskeysockets/eslint-config": "1.0.0",
+    "link-preview-js": "4.0.4",
+    "music-metadata": "11.12.3",
+    "protobufjs": "7.6.6"
   }
 }
