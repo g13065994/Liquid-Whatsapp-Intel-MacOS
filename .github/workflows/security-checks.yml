@@ -18,6 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -26,8 +28,6 @@ jobs:
       - name: Commit lockfile
         run: |
           TARGET_BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
-          git fetch origin "$TARGET_BRANCH"
-          git checkout "$TARGET_BRANCH"
           if git diff --quiet -- package-lock.json; then
             echo "package-lock.json is already current."
           else
