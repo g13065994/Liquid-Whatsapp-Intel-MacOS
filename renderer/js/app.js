@@ -52,13 +52,8 @@ async function init() {
     if (boot.hasSession) enterApp()
     else showLogin()
   } catch (e) {
-    const status = $('login-status')
-    if (status) {
-      status.className = 'status-line err'
-      status.textContent = e?.message || 'Liquid WhatsApp could not start. Open View → Toggle Developer Tools for details.'
-    }
     console.error('[renderer] boot failed', e)
-    showLogin(e?.message || 'Liquid WhatsApp could not start. Please try again.')
+    showLogin('Liquid WhatsApp could not start. Please try again.')
   }
 }
 
@@ -810,6 +805,7 @@ async function sendMessage() {
   const input = $('composer-input')
   const text = input.value.trim()
   if (!text || !Store.activeJid) return
+  if (text.length > 65536) { ui.toast('Message is too long (maximum 65,536 characters)'); return }
   input.value = ''
   window.liquid.typing(Store.activeJid, false)
   try {
