@@ -12,7 +12,7 @@ permissions:
 jobs:
   lockfile:
     name: Generate dependency lockfile
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
     permissions:
       contents: write
     runs-on: ubuntu-latest
@@ -25,6 +25,9 @@ jobs:
         run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
       - name: Commit lockfile
         run: |
+          TARGET_BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          git fetch origin "$TARGET_BRANCH"
+          git checkout "$TARGET_BRANCH"
           if git diff --quiet -- package-lock.json; then
             echo "package-lock.json is already current."
             exit 0
@@ -33,18 +36,29 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package-lock.json
           git commit -m "chore: add reproducible npm lockfile"
-          git push
+          git push origin "HEAD:$TARGET_BRANCH"
+      - name: Upload generated lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-package-lock
+          path: package-lock.json
+          if-no-files-found: error
 
   syntax:
     name: Syntax checks
     needs: lockfile
-    if: always() && (github.event_name == 'pull_request' || needs.lockfile.result == 'success')
+    if: always() && needs.lockfile.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Download generated lockfile
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-package-lock
+          path: .
       - name: Install locked dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Check JavaScript syntax
@@ -75,6 +89,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Download generated lockfile
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-package-lock
+          path: .
       - name: Install locked dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Build Catalina Intel release
