@@ -1,6 +1,35 @@
 const $ = (id) => document.getElementById(id)
 
 let pairingInProgress = false
+let rendererErrorShown = false
+
+function showRendererError(error) {
+  if (rendererErrorShown) return
+  rendererErrorShown = true
+  console.error('[renderer] unrecoverable error', error)
+  const loginView = $('login-view')
+  const appView = $('app-view')
+  if (!loginView || !appView) return
+  loginView.classList.remove('hidden')
+  appView.classList.add('hidden')
+  $('login-btn').disabled = false
+  $('pair-code').classList.add('hidden')
+  $('pair-code-value').textContent = '—'
+  const status = $('login-status')
+  if (status) {
+    status.className = 'status-line err'
+    status.textContent = 'Liquid WhatsApp hit an unexpected error. Please try again.'
+  }
+}
+
+window.addEventListener('error', (event) => {
+  showRendererError(event.error || event.message)
+})
+
+window.addEventListener('unhandledrejection', (event) => {
+  event.preventDefault()
+  showRendererError(event.reason)
+})
 
 function applyPerformanceProfile() {
   const cores = Number(navigator.hardwareConcurrency || 4)
@@ -29,23 +58,19 @@ async function init() {
       status.textContent = e?.message || 'Liquid WhatsApp could not start. Open View → Toggle Developer Tools for details.'
     }
     console.error('[renderer] boot failed', e)
-    showLogin()
-    if (status) {
-      status.className = 'status-line err'
-      status.textContent = e?.message || 'Liquid WhatsApp could not start. Open View → Toggle Developer Tools for details.'
-    }
+    showLogin(e?.message || 'Liquid WhatsApp could not start. Please try again.')
   }
 }
 
-function showLogin() {
+function showLogin(message = '') {
   pairingInProgress = false
   $('login-view').classList.remove('hidden')
   $('app-view').classList.add('hidden')
   $('login-btn').disabled = false
   $('pair-code').classList.add('hidden')
   $('pair-code-value').textContent = '—'
-  $('login-status').className = 'status-line'
-  $('login-status').textContent = ''
+  $('login-status').className = message ? 'status-line err' : 'status-line'
+  $('login-status').textContent = message
 }
 
 function enterApp() {
@@ -432,7 +457,10 @@ function wireStaticUI() {
   ;['dragleave','drop'].forEach(ev => composer.addEventListener(ev, (e) => { e.preventDefault(); if (ev === 'dragleave' && e.relatedTarget && composer.contains(e.relatedTarget)) return; dropHint.classList.add('hidden') }))
   composer.addEventListener('drop', async (e) => {
     if (!Store.activeJid || !e.dataTransfer.files.length) return
-    for (const file of e.dataTransfer.files) { await window.liquid.sendDroppedMedia(Store.activeJid, file.path, '', quotedMessage).catch(err => ui.toast(err.message || 'Upload failed')) }
+    for (const file of e.dataTransfer.files) {
+      if (!file.path || file.path.includes('\u0000')) { ui.toast('Invalid dropped file'); continue }
+      await window.liquid.sendDroppedMedia(Store.activeJid, file.path, '', quotedMessage).catch(err => ui.toast(err.message || 'Upload failed'))
+    }
     clearQuote()
   })
   $('composer-input').addEventListener('input', () => {
