@@ -89,8 +89,8 @@ jobs:
 
   build:
     name: Release-branch build validation
-    needs: [lockfile, syntax, audit]
-    if: always() && (github.event_name == 'pull_request' || needs.lockfile.result == 'success') && needs.syntax.result == 'success' && needs.audit.result == 'success'
+    needs: [lockfile, syntax]
+    if: always() && needs.lockfile.result == 'success' && needs.syntax.result == 'success'
     runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
