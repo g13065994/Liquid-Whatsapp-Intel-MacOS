@@ -46,6 +46,23 @@ const PRIVACY_METHODS = {
 
 const STATUS_MAP = { 1: 'PENDING', 2: 'SERVER_ACK', 3: 'DELIVERY_ACK', 4: 'READ' }
 
+const MAX_MESSAGE_TEXT_LENGTH = 65536
+const JID_RE = /^(?:\d{4,20}(?::\d{1,20})?@s\.whatsapp\.net|\d{4,20}@lid|\d{6,20}-\d{8,20}@g\.us|status@broadcast)$/
+
+function assertJid(jid, label = 'Chat') {
+  const value = String(jid || '').trim()
+  if (!JID_RE.test(value)) throw new Error(`${label} address is invalid`)
+  return value
+}
+
+function assertMessageText(text, label = 'Message') {
+  const value = String(text ?? '').trim()
+  if (!value) throw new Error(`${label} cannot be empty`)
+  if (value.length > MAX_MESSAGE_TEXT_LENGTH) throw new Error(`${label} is too long (maximum ${MAX_MESSAGE_TEXT_LENGTH} characters)`)
+  if (value.includes('\u0000')) throw new Error(`${label} contains an invalid character`)
+  return value
+}
+
 class WhatsAppCore extends EventEmitter {
   constructor(dataDir) {
     super()
@@ -527,20 +544,21 @@ class WhatsAppCore extends EventEmitter {
   }
 
   async sendText(jid, text, quoted) {
-    const value = String(text || '').trim()
-    if (!jid || !value) throw new Error('Message cannot be empty')
+    const targetJid = assertJid(jid)
+    const value = assertMessageText(text)
     if (!this.sock || this.connection !== 'open') {
-      this.outbox.push({ id: crypto.randomUUID(), type: 'text', jid, text: value, quoted: null, createdAt: Date.now() })
+      this.outbox.push({ id: crypto.randomUUID(), type: 'text', jid: targetJid, text: value, quoted: null, createdAt: Date.now() })
       this._saveOutbox()
       this.emit('outbox', { count: this.outbox.length })
       return { queued: true }
     }
     const quotedRaw = quoted?.id && quoted?.jid ? this._getRawMessage(quoted.jid, quoted.id) : null
     const options = quotedRaw ? { quoted: quotedRaw } : {}
-    await this.sock.sendMessage(jid, { text: value }, options)
+    await this.sock.sendMessage(targetJid, { text: value }, options)
   }
 
   async sendImage(jid, filePath, caption = '', quoted) {
+    jid = assertJid(jid)
     this._requireOpen()
     const ext = path.extname(filePath).toLowerCase()
     await this.sock.sendMessage(jid, {
@@ -555,12 +573,14 @@ class WhatsAppCore extends EventEmitter {
 
   _readUserMediaFile(filePath, { dropped = false } = {}) {
     if (!filePath || typeof filePath !== 'string') throw new Error('No file selected')
+    if (filePath.includes('\u0000')) throw new Error('Invalid file path')
     const resolved = path.resolve(filePath)
     if (dropped) {
       const home = path.resolve(os.homedir())
       const allowedRoots = ['Desktop', 'Documents', 'Downloads', 'Movies', 'Music', 'Pictures']
         .map((name) => path.join(home, name))
-      const allowed = allowedRoots.some((root) => resolved === root || resolved.startsWith(root + path.sep))
+      const realPath = fs.realpathSync(resolved)
+      const allowed = allowedRoots.some((root) => realPath === root || realPath.startsWith(root + path.sep))
       if (!allowed) throw new Error('Dropped files must come from a standard user media folder')
     }
     const stat = fs.statSync(resolved)
@@ -573,6 +593,7 @@ class WhatsAppCore extends EventEmitter {
   }
 
   async sendMedia(jid, filePath, caption = '', quoted) {
+    jid = assertJid(jid)
     this._requireOpen()
     const media = this._readUserMediaFile(filePath)
     const { path: resolved, ext, mime, data } = media
@@ -597,6 +618,7 @@ const quotedRaw = quoted?.id && quoted?.jid ? this._getRawMessage(quoted.jid, qu
   }
 
   async sendDroppedMedia(jid, filePath, caption = '', quoted) {
+    jid = assertJid(jid)
     this._requireOpen()
     const media = this._readUserMediaFile(filePath, { dropped: true })
     const { path: resolved, ext, mime, data } = media
@@ -620,6 +642,7 @@ const quotedRaw = quoted?.id && quoted?.jid ? this._getRawMessage(quoted.jid, qu
   }
 
   async sendVoiceNote(jid, filePath, quoted) {
+    jid = assertJid(jid)
     this._requireOpen()
     if (!filePath) throw new Error('No voice note recorded')
     if (!ffmpegPath) throw new Error('FFmpeg is not installed. Run npm install before sending voice notes.')
@@ -844,6 +867,7 @@ const quotedRaw = quoted?.id && quoted?.jid ? this._getRawMessage(quoted.jid, qu
   }
 
   async sendPoll(jid, name, options, settings = {}) {
+    jid = assertJid(jid)
     this._requireOpen()
     const values = (options || []).map(String).map((s) => s.trim()).filter(Boolean).slice(0, 12)
     if (!name || values.length < 2) throw new Error('A poll needs a title and at least two options')
@@ -858,6 +882,7 @@ const quotedRaw = quoted?.id && quoted?.jid ? this._getRawMessage(quoted.jid, qu
   }
 
   async sendViewOnce(jid, text) {
+    jid = assertJid(jid)
     this._requireOpen()
     await this.sock.sendMessage(jid, { text: String(text), viewOnce: true })
   }
@@ -870,6 +895,7 @@ const quotedRaw = quoted?.id && quoted?.jid ? this._getRawMessage(quoted.jid, qu
   }
 
   async sendMentionAll(jid, text) {
+    jid = assertJid(jid)
     this._requireOpen()
     const ids = await this.groupParticipants(jid)
     await this.sock.sendMessage(jid, { text: String(text), mentions: ids })
