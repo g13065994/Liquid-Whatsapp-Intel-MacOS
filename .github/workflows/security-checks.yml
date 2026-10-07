@@ -74,6 +74,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Download generated lockfile
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-package-lock
+          path: .
       - name: Install locked dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Run npm audit
@@ -95,6 +100,6 @@ jobs:
           name: generated-package-lock
           path: .
       - name: Install locked dependencies
-        run: npm ci --ignore-scripts --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
       - name: Build Catalina Intel release
         run: npm run build:catalina
