@@ -306,9 +306,9 @@ function registerIpc() {
     if (!file) return { ok: false, reason: 'canceled' }
     await core.sendImage(jid, file, caption || '', quoted)
     return { ok: true }
-  }))
+  }), IPC_FILE_TIMEOUT_MS)
 
-  registerHandle('chat:send-dropped-media', safeHandler((_e, jid, filePath, caption, quoted) => core.sendDroppedMedia(jid, filePath, caption || '', quoted)))
+  registerHandle('chat:send-dropped-media', safeHandler((_e, jid, filePath, caption, quoted) => core.sendDroppedMedia(jid, filePath, caption || '', quoted)), IPC_FILE_TIMEOUT_MS)
 
   registerHandle('chat:send-media', safeHandler(async (_e, jid, caption, quoted) => {
     const file = await chooseFile('Choose a file', [
@@ -321,7 +321,7 @@ function registerIpc() {
     if (!file) return { ok: false, reason: 'canceled' }
     await core.sendMedia(jid, file, caption || '', quoted)
     return { ok: true }
-  }))
+  }), IPC_FILE_TIMEOUT_MS)
 
   registerHandle('chat:send-voice-note', safeHandler(async (_e, jid, dataUrl, durationMs, quoted) => {
     if (!jid || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:audio/')) throw new Error('Invalid voice note')
@@ -338,7 +338,7 @@ function registerIpc() {
     } finally {
       try { fs.unlinkSync(file) } catch (_) {}
     }
-  }))
+  }), IPC_FILE_TIMEOUT_MS)
 
   registerHandle('chat:typing', (_e, jid, on) => core.sendTyping(jid, on))
   registerHandle('chat:load', safeHandler((_e, jid) => core.loadMessages(jid, 80)))
