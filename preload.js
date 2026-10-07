@@ -1,11 +1,42 @@
 const { contextBridge, ipcRenderer, clipboard } = require('electron')
 
-const invoke = (channel, ...args) => ipcRenderer.invoke(channel, ...args)
+const INVOKE_CHANNELS = new Set([
+  'app:init', 'core:pair', 'core:logout', 'chat:set-active',
+  'chat:send-text', 'chat:send-image', 'chat:send-media', 'chat:send-dropped-media',
+  'chat:send-voice-note', 'chat:typing', 'network:ping', 'chat:load', 'chat:search',
+  'chat:meta', 'chat:archive', 'chat:pin', 'chat:mute', 'chat:read', 'chat:edit',
+  'chat:delete', 'chat:react', 'chat:forward', 'chat:poll', 'chat:viewonce',
+  'chat:broadcast', 'chat:mention-all', 'chat:disappear', 'chat:sticker',
+  'chat:star', 'chat:starred', 'media:download', 'contacts:list', 'group:participants',
+  'group:action', 'group:subject', 'group:leave', 'status:post', 'status:post-image',
+  'privacy:set', 'settings:get', 'settings:set', 'ai:set-key', 'ai:call', 'ai:image',
+  'local:info', 'diagnostics:get', 'integrity:get', 'session:info',
+  'local:clear-backups', 'calls:history', 'calls:clear-history', 'calls:create-link',
+  'local:export', 'autoreply:add', 'autoreply:remove', 'schedule:list', 'schedule:add',
+  'schedule:remove', 'call:action', 'whatsapp-web:call', 'external:open',
+  'update:check', 'update:download', 'update:install'
+])
+
+const EVENT_CHANNELS = new Set([
+  'connection', 'chats', 'messages', 'presence', 'settings', 'schedules', 'calls',
+  'call:ring', 'call:state', 'call:error', 'call:audio', 'call:video', 'outbox',
+  'open-chat', 'update:checking', 'update:available', 'update:not-available',
+  'update:progress', 'update:downloaded', 'update:cancelled', 'update:error'
+])
+
+const invoke = (channel, ...args) => {
+  if (!INVOKE_CHANNELS.has(channel)) throw new Error('Unsupported IPC channel')
+  return ipcRenderer.invoke(channel, ...args)
+}
 
 function on(channel, cb) {
+  if (!EVENT_CHANNELS.has(channel) && !EVENT_CHANNELS.has(channel.replace(/^ev:/, ''))) {
+    throw new Error('Unsupported event channel')
+  }
+  const eventChannel = channel.startsWith('ev:') ? channel : 'ev:' + channel
   const listener = (_event, data) => cb(data)
-  ipcRenderer.on(channel, listener)
-  return () => ipcRenderer.removeListener(channel, listener)
+  ipcRenderer.on(eventChannel, listener)
+  return () => ipcRenderer.removeListener(eventChannel, listener)
 }
 
 contextBridge.exposeInMainWorld('liquid', {

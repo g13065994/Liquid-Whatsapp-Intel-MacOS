@@ -1,14 +1,14 @@
 {
   "name": "liquid-whatsapp",
-  "version": "2.3.0",
-  "description": "Liquid WhatsApp desktop client for macOS Catalina and Intel Macs — v2.3.0 WhatsApp Web calling bridge",
+  "version": "1.0.0",
+  "description": "Liquid WhatsApp desktop client for macOS Catalina and Intel Macs — v1.0.0 security hardening",
   "main": "main.js",
   "author": "Gerald(Mateo DEV)",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --mac dmg zip --x64 --publish never",
-    "check": "node --check main.js && node --check preload.js && node --check backend/core.js && node --check backend/integrity.js && node --check backend/local-store.js && node --check renderer/js/store.js && node --check renderer/js/api.js && node --check renderer/js/ui.js && node --check renderer/js/app.js && node --check scripts/patch-voip-capture.js",
+    "check": "node --check main.js && node --check preload.js && node --check backend/core.js && node --check backend/integrity.js && node --check backend/local-store.js && node --check renderer/js/store.js && node --check renderer/js/api.js && node --check renderer/js/ui.js && node --check renderer/js/app.js && node --check scripts/patch-voip-capture.js && node --check scripts/after-pack-fuses.js",
     "build:catalina": "npm run check && electron-builder --mac dmg zip --x64 --publish never",
     "build:app": "npm run check && electron-builder --mac dir --x64",
     "check:renderer": "node --check renderer/js/store.js && node --check renderer/js/api.js && node --check renderer/js/ui.js && node --check renderer/js/app.js",
@@ -24,7 +24,8 @@
   },
   "devDependencies": {
     "electron": "32.3.3",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "@electron/fuses": "^1.8.0"
   },
   "build": {
     "appId": "com.liquid.whatsapp",
@@ -62,7 +63,8 @@
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Liquid WhatsApp uses the microphone to record voice notes.",
         "NSCameraUsageDescription": "Liquid WhatsApp uses the camera for supported calling features."
-      }
+      },
+      "strictVerify": true
     },
     "asarUnpack": [
       "node_modules/ffmpeg-static/**",
@@ -77,16 +79,24 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "Romeoisl",
-        "repo": "Whatsapp-MacOS-Intel",
+        "owner": "g13065994",
+        "repo": "Liquid-Whatsapp-Intel-MacOS",
         "releaseType": "release"
       }
-    ]
+    ],
+    "asar": {
+      "smartUnpack": true
+    },
+    "disableSanityCheckAsar": false,
+    "afterPack": "./scripts/after-pack-fuses.js"
   },
   "overrides": {
     "@whiskeysockets/baileys": {
       "@whiskeysockets/eslint-config": "1.0.0"
     },
-    "@whiskeysockets/eslint-config": "1.0.0"
+    "@whiskeysockets/eslint-config": "1.0.0",
+    "link-preview-js": "4.0.4",
+    "music-metadata": "11.12.3",
+    "protobufjs": "7.6.6"
   }
 }
