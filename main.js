@@ -20,6 +20,17 @@ let updateDownloadStarted = false
 let webCallWin = null
 let latestAvailableVersion = null
 
+const IPC_TIMEOUT_MS = 60000
+const IPC_FILE_TIMEOUT_MS = 120000
+
+function withIpcTimeout(operation, timeoutMs, channel) {
+  let timer = null
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`IPC request timed out: ${channel}`)), timeoutMs)
+  })
+  return Promise.race([Promise.resolve().then(operation), timeout]).finally(() => clearTimeout(timer))
+}
+
 function forward(channel, data) {
   if (win && !win.isDestroyed()) win.webContents.send('ev:' + channel, data)
 }
@@ -198,7 +209,7 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
-function registerHandle(channel, listener) {
+function registerHandle(channel, listener, timeoutMs = IPC_TIMEOUT_MS) {
   require('electron').ipcMain.handle(channel, (event, ...args) => {
     if (!win || win.isDestroyed() || event.sender !== win.webContents) {
       throw new Error('Unauthorized IPC sender')
@@ -208,7 +219,7 @@ function registerHandle(channel, listener) {
     if (!frameUrl || frameUrl !== expectedUrl) {
       throw new Error('Unauthorized IPC frame')
     }
-    return listener(event, ...args)
+    return withIpcTimeout(() => listener(event, ...args), timeoutMs, channel)
   })
 }
 
@@ -265,7 +276,7 @@ function registerIpc() {
     starred: core.getStarred()
   }))
 
-  registerHandle('core:pair', safeHandler((_e, number) => core.pairWithPhone(number)))
+  registerHandle('core:pair', safeHandler((_e, number) => core.pairWithPhone(number)), 45000)
   registerHandle('core:logout', safeHandler(() => core.logout()))
   registerHandle('chat:set-active', (_e, jid) => core.setActiveJid(jid))
 
