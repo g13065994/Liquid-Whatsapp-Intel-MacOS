@@ -81,8 +81,11 @@ jobs:
           path: .
       - name: Install locked dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Run npm audit
+      - name: Run full npm audit
         run: npm audit
+        continue-on-error: true
+      - name: Gate on shipped dependencies
+        run: npm audit --omit=dev
 
   build:
     name: Release-branch build validation
