@@ -28,7 +28,7 @@ jobs:
       - name: Commit lockfile
         run: |
           TARGET_BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
-          if git diff --quiet -- package-lock.json; then
+          if git ls-files --error-unmatch package-lock.json >/dev/null 2>&1 && git diff --quiet -- package-lock.json; then
             echo "package-lock.json is already current."
           else
             git config user.name "github-actions[bot]"
